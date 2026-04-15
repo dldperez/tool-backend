@@ -23,10 +23,8 @@ inventory = [
 
 MAX_STOCK = 30
 
-# 👷 ACTIVE BORROWS (IMPORTANT FIX)
+# ================= TRACKING =================
 active_borrows = []
-
-# 📜 HISTORY
 history = []
 
 # ================= MODEL LOAD =================
@@ -64,12 +62,37 @@ class ItemRequest(BaseModel):
 def get_inventory():
     return {"inventory": inventory}
 
+# ================= WORKERS =================
+@app.get("/workers")
+def get_workers():
+    return {
+        "workers": [
+            "John Doe", "Maria Cruz", "Juan Dela Cruz",
+            "Anna Reyes", "Miguel Santos", "Paulo Garcia",
+            "Lisa Gomez", "Mark Torres", "Sofia Lim", "Ethan Rivera"
+        ]
+    }
+
 # ================= HISTORY =================
 @app.get("/history")
 def get_history():
-    return {"history": history}
+    return {"history": history[-20:]}
 
-# ================= AI PREDICT =================
+# ================= DASHBOARD =================
+@app.get("/dashboard")
+def dashboard():
+    total_assets = sum(item["quantity"] for item in inventory)
+    in_use = len(active_borrows)
+    low_stock = sum(1 for item in inventory if item["quantity"] <= 5)
+
+    return {
+        "total_assets": total_assets,
+        "in_use": in_use,
+        "low_stock": low_stock,
+        "feed": history[-3:]
+    }
+
+# ================= PREDICT =================
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     image_bytes = await file.read()
@@ -82,7 +105,6 @@ async def predict(file: UploadFile = File(...)):
         _, predicted = torch.max(outputs, 1)
 
     tool_name = classes[predicted.item()]
-
     return {"tool": tool_name}
 
 # ================= BORROW =================
@@ -106,15 +128,17 @@ def borrow_item(req: ItemRequest):
                 "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
 
-            return {"message": "borrowed", "item": item}
+            return {
+                "message": "borrowed",
+                "inventory": inventory
+            }
 
     return {"message": "not available"}
 
-# ================= RETURN (FIXED LOGIC) =================
+# ================= RETURN =================
 @app.post("/return")
 def return_item(req: ItemRequest):
 
-    # CHECK IF BORROW EXISTS
     match = None
     for b in active_borrows:
         if b["worker"] == req.worker and b["tool"] == req.name:
@@ -124,10 +148,8 @@ def return_item(req: ItemRequest):
     if not match:
         return {"message": "invalid return - not borrowed"}
 
-    # REMOVE FROM ACTIVE BORROWS
     active_borrows.remove(match)
 
-    # RESTORE INVENTORY
     for item in inventory:
         if item["name"] == req.name and item["quantity"] < MAX_STOCK:
             item["quantity"] += 1
@@ -139,4 +161,7 @@ def return_item(req: ItemRequest):
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
-    return {"message": "returned", "item": req.name}
+    return {
+        "message": "returned",
+        "inventory": inventory
+    }
